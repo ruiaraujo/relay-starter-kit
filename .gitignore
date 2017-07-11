@@ -1,5 +1,4 @@
 .DS_Store
+__generated__/
 node_modules
-npm-debug.log
-data/schema.graphql
-.idea/
+.idea

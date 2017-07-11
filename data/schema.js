@@ -1,143 +1,190 @@
-/**
- *  Copyright (c) 2015, Facebook, Inc.
- *  All rights reserved.
- *
- *  This source code is licensed under the BSD-style license found in the
- *  LICENSE file in the root directory of this source tree. An additional grant
- *  of patent rights can be found in the PATENTS file in the same directory.
- */
-
 import {
   GraphQLBoolean,
-  GraphQLFloat,
   GraphQLID,
   GraphQLInt,
-  GraphQLList,
+  GraphQLFloat,
   GraphQLNonNull,
   GraphQLObjectType,
   GraphQLSchema,
-  GraphQLString,
+  GraphQLString
 } from 'graphql';
 
 import {
   connectionArgs,
   connectionDefinitions,
   connectionFromArray,
+  cursorForObjectInConnection,
   fromGlobalId,
   globalIdField,
   mutationWithClientMutationId,
-  nodeDefinitions,
+  nodeDefinitions
 } from 'graphql-relay';
 
 import {
-  // Import methods that your schema can use to interact with your database
+  Message,
   User,
-  Widget,
+  addMessage,
+  getMessage,
+  getMessages,
   getUser,
   getViewer,
-  getWidget,
-  getWidgets,
+  removeMessages,
+  editMessage
 } from './database';
 
-/**
- * We get the node interface and field from the Relay library.
- *
- * The first method defines the way we resolve an ID to its object.
- * The second defines the way we resolve an object to its GraphQL type.
- */
-var {nodeInterface, nodeField} = nodeDefinitions(
-  (globalId) => {
-    var {type, id} = fromGlobalId(globalId);
-    if (type === 'User') {
+const { nodeInterface, nodeField } = nodeDefinitions(
+  globalId => {
+    const { type, id } = fromGlobalId(globalId);
+    if (type === 'Message') {
+      return getMessage(id);
+    } else if (type === 'User') {
       return getUser(id);
-    } else if (type === 'Widget') {
-      return getWidget(id);
-    } else {
-      return null;
     }
+    return null;
   },
-  (obj) => {
-    if (obj instanceof User) {
-      return userType;
-    } else if (obj instanceof Widget)  {
-      return widgetType;
-    } else {
-      return null;
+  obj => {
+    if (obj instanceof Message) {
+      return GraphQLMessage;
+    } else if (obj instanceof User) {
+      return GraphQLUser;
     }
+    return null;
   }
 );
 
-/**
- * Define your own types here
- */
-
-var userType = new GraphQLObjectType({
-  name: 'User',
-  description: 'A person who uses our app',
-  fields: () => ({
-    id: globalIdField('User'),
-    widgets: {
-      type: widgetConnection,
-      description: 'A person\'s collection of widgets',
-      args: connectionArgs,
-      resolve: (_, args) => connectionFromArray(getWidgets(), args),
+const GraphQLMessage = new GraphQLObjectType({
+  name: 'Message',
+  fields: {
+    id: globalIdField('Message'),
+    text: {
+      type: GraphQLString,
+      resolve: obj => obj.text
     },
-  }),
-  interfaces: [nodeInterface],
+    timestamp: {
+      type: GraphQLFloat, // Because big ints make GraphQLInt return null
+      resolve: obj => obj.timestamp
+    }
+  },
+  interfaces: [nodeInterface]
 });
 
-var widgetType = new GraphQLObjectType({
-  name: 'Widget',
-  description: 'A shiny widget',
-  fields: () => ({
-    id: globalIdField('Widget'),
+const { connectionType: MessagesConnection, edgeType: GraphQLMessageEdge } = connectionDefinitions({
+  name: 'Message',
+  nodeType: GraphQLMessage
+});
+
+const GraphQLUser = new GraphQLObjectType({
+  name: 'User',
+  fields: {
+    id: globalIdField('User'),
+    messages: {
+      type: MessagesConnection,
+      args: {
+        ...connectionArgs
+      },
+      resolve: (obj, { ...args }) => connectionFromArray(getMessages(), args)
+    },
     name: {
       type: GraphQLString,
-      description: 'The name of the widget',
+      resolve: () => getViewer().name
     },
-  }),
-  interfaces: [nodeInterface],
+    totalCount: {
+      type: GraphQLInt,
+      resolve: () => getMessages().length
+    }
+  },
+  interfaces: [nodeInterface]
 });
 
-/**
- * Define your own connection types here
- */
-var {connectionType: widgetConnection} =
-  connectionDefinitions({name: 'Widget', nodeType: widgetType});
-
-/**
- * This is the type that will be the root of our query,
- * and the entry point into our schema.
- */
-var queryType = new GraphQLObjectType({
+const Query = new GraphQLObjectType({
   name: 'Query',
-  fields: () => ({
-    node: nodeField,
-    // Add your own root fields here
+  fields: {
     viewer: {
-      type: userType,
-      resolve: () => getViewer(),
+      type: GraphQLUser,
+      resolve: () => getViewer()
     },
-  }),
+    node: nodeField
+  }
 });
 
-/**
- * This is the type that will be the root of our mutations,
- * and the entry point into performing writes in our schema.
- */
-var mutationType = new GraphQLObjectType({
+const GraphQLAddMessageMutation = mutationWithClientMutationId({
+  name: 'AddMessage',
+  inputFields: {
+    text: { type: new GraphQLNonNull(GraphQLString) }
+  },
+  outputFields: {
+    messageEdge: {
+      type: GraphQLMessageEdge,
+      resolve: ({ localMessageId }) => {
+        const message = getMessage(localMessageId);
+        return {
+          cursor: cursorForObjectInConnection(getMessages(), message),
+          node: message
+        };
+      }
+    },
+    viewer: {
+      type: GraphQLUser,
+      resolve: () => getViewer()
+    }
+  },
+  mutateAndGetPayload: ({ text }) => {
+    const localMessageId = addMessage(text, Date.now());
+    return { localMessageId };
+  }
+});
+
+const GraphQLRemoveMessageMutation = mutationWithClientMutationId({
+  name: 'RemoveMessage',
+  inputFields: {
+    id: { type: new GraphQLNonNull(GraphQLID) }
+  },
+  outputFields: {
+    deletedMessageId: {
+      type: GraphQLID,
+      resolve: ({ id }) => id
+    },
+    viewer: {
+      type: GraphQLUser,
+      resolve: () => getViewer()
+    }
+  },
+  mutateAndGetPayload: ({ id }) => {
+    const localMessageId = fromGlobalId(id).id;
+    removeMessages(localMessageId);
+    return { id };
+  }
+});
+
+const GraphQLEditMessageMutation = mutationWithClientMutationId({
+  name: 'EditMessage',
+  inputFields: {
+    id: { type: new GraphQLNonNull(GraphQLID) },
+    text: { type: new GraphQLNonNull(GraphQLString) }
+  },
+  outputFields: {
+    message: {
+      type: GraphQLMessage,
+      resolve: ({ localMessageId }) => getMessage(localMessageId)
+    }
+  },
+  mutateAndGetPayload: ({ id, text }) => {
+    const localMessageId = fromGlobalId(id).id;
+    editMessage(localMessageId, text);
+    return { localMessageId };
+  }
+});
+
+const Mutation = new GraphQLObjectType({
   name: 'Mutation',
-  fields: () => ({
-    // Add your own mutations here
-  })
+  fields: {
+    addMessage: GraphQLAddMessageMutation,
+    removeMessage: GraphQLRemoveMessageMutation,
+    editMessage: GraphQLEditMessageMutation
+  }
 });
 
-/**
- * Finally, we construct our schema (whose starting query type is the query
- * type we defined above) and export it.
- */
-export var Schema = new GraphQLSchema({
-  query: queryType,
-  // Uncomment the following after adding some mutation fields:
-  // mutation: mutationType
+export const schema = new GraphQLSchema({
+  query: Query,
+  mutation: Mutation
 });

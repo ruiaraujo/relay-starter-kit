@@ -1,5 +1,4 @@
 import path from 'path';
-import webpack from 'webpack';
 
 const config = {
   entry: path.resolve(__dirname, 'js', 'app.js'),

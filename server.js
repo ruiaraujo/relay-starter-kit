@@ -4,9 +4,9 @@ import graphQLHTTP from 'express-graphql';
 import path from 'path';
 import webpack from 'webpack';
 import WebpackDevServer from 'webpack-dev-server';
-import {clean} from 'require-clean';
 import {exec} from 'child_process';
 import config from './webpack.config';
+import {schema} from './data/schema';
 
 const APP_PORT = 3000;
 const GRAPHQL_PORT = 8080;
@@ -34,16 +34,10 @@ function startAppServer(callback) {
 }
 
 function startGraphQLServer(callback) {
-  // Expose a GraphQL endpoint
-  clean('./data/schema');
-  const {Schema} = require('./data/schema');
-  const graphQLApp = express();
-  graphQLApp.use('/', graphQLHTTP({
-    graphiql: true,
-    pretty: true,
-    schema: Schema,
-  }));
-  graphQLServer = graphQLApp.listen(GRAPHQL_PORT, () => {
+// Expose a GraphQL endpoint
+  const graphQLServer = express();
+  graphQLServer.use('/', graphQLHTTP({schema, pretty: true}));
+  graphQLServer.listen(GRAPHQL_PORT, () => {
     console.log(
       `GraphQL server is now running on http://localhost:${GRAPHQL_PORT}`
     );
@@ -65,15 +59,18 @@ function startServers(callback) {
   // Compile the schema
   exec('npm run update-schema', (error, stdout) => {
     console.log(stdout);
-    let doneTasks = 0;
-    function handleTaskDone() {
-      doneTasks++;
-      if (doneTasks === 2 && callback) {
-        callback();
+    exec('npm run build', (error, stdout) => {
+      console.log(stdout);
+      let doneTasks = 0;
+      function handleTaskDone() {
+        doneTasks++;
+        if (doneTasks === 2 && callback) {
+          callback();
+        }
       }
-    }
-    startGraphQLServer(handleTaskDone);
-    startAppServer(handleTaskDone);
+      startGraphQLServer(handleTaskDone);
+      startAppServer(handleTaskDone);
+    });
   });
 }
 const watcher = chokidar.watch('./data/{database,schema}.js');

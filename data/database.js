@@ -1,33 +1,60 @@
-/**
- *  Copyright (c) 2015, Facebook, Inc.
- *  All rights reserved.
- *
- *  This source code is licensed under the BSD-style license found in the
- *  LICENSE file in the root directory of this source tree. An additional grant
- *  of patent rights can be found in the PATENTS file in the same directory.
- */
+export class Message {}
+export class User {}
 
-// Model types
-class User {}
-class Widget {}
+// Mock authenticated ID
+const VIEWER_ID = 'me';
+const VIEWER_NAME = 'Rui';
 
-// Mock data
-var viewer = new User();
-viewer.id = '1';
-viewer.name = 'Anonymous';
-var widgets = ['What\'s-it', 'Who\'s-it', 'How\'s-it'].map((name, i) => {
-  var widget = new Widget();
-  widget.name = name;
-  widget.id = `${i}`;
-  return widget;
-});
-
-module.exports = {
-  // Export methods that your schema can use to interact with your database
-  getUser: (id) => id === viewer.id ? viewer : null,
-  getViewer: () => viewer,
-  getWidget: (id) => widgets.find(w => w.id === id),
-  getWidgets: () => widgets,
-  User,
-  Widget,
+// Mock user data
+const viewer = new User();
+viewer.id = VIEWER_ID;
+viewer.name = VIEWER_NAME;
+const usersById = {
+  [VIEWER_ID]: viewer
 };
+
+// Mock message data
+const messageById = {};
+const messageIdsByUser = {
+  [VIEWER_ID]: []
+};
+let nextMessageId = 0;
+
+export function addMessage(text, timestamp) {
+  const message = new Message();
+  message.id = `${nextMessageId++}`;
+  message.text = text;
+  message.timestamp = timestamp;
+  messageById[message.id] = message;
+  messageIdsByUser[VIEWER_ID].push(message.id);
+  return message.id;
+}
+
+export function getMessage(id) {
+  return messageById[id];
+}
+
+export function getMessages() {
+  return messageIdsByUser[VIEWER_ID].map(id => messageById[id]);
+}
+
+export function getUser(id) {
+  return usersById[id];
+}
+
+export function getViewer() {
+  return getUser(VIEWER_ID);
+}
+
+export function removeMessages(id) {
+  const messageIndex = messageIdsByUser[VIEWER_ID].indexOf(id);
+  if (messageIndex !== -1) {
+    messageIdsByUser[VIEWER_ID].splice(messageIndex, 1);
+  }
+  delete messageById[id];
+}
+
+export function editMessage(id, text) {
+  const message = getMessage(id);
+  message.text = text;
+}
